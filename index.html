@@ -820,6 +820,27 @@
     </div>
   </div>
 
+
+  <div class="qibla-section" style="margin-top: 1rem;">
+    <div class="section-title">📅 التقويم السنوي</div>
+    <div style="background:#ffffff;border:1px solid rgba(23,184,166,0.25);border-radius:16px;overflow:hidden;position:relative;">
+      <iframe
+        src="https://mashhoraiharty.github.io/mashhoraiharty/"
+        style="width:100%;height:600px;border:none;display:block;"
+        loading="lazy"
+        title="التقويم السنوي"
+        onload="document.getElementById('cal-loading').style.display='none'"
+      ></iframe>
+      <div id="cal-loading" style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;background:#fdfcf8;gap:0.75rem;">
+        <div style="font-size:2rem;">📅</div>
+        <div style="font-size:0.9rem;color:#6b7280;">جاري تحميل التقويم...</div>
+      </div>
+    </div>
+    <button onclick="window.open('https://mashhoraiharty.github.io/mashhoraiharty/','_blank')" style="width:100%;margin-top:0.6rem;background:rgba(23,184,166,0.08);border:1px solid rgba(23,184,166,0.25);border-radius:10px;color:#17b8a6;padding:0.6rem;font-size:0.82rem;font-family:CustomFont,sans-serif;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:0.4rem;">
+      🔗 فتح التقويم في نافذة مستقلة
+    </button>
+  </div>
+
   <div class="method-bar">
     <span class="method-label">طريقة الحساب:</span>
     <select class="method-select" id="method-select" onchange="recalculate()">
@@ -862,83 +883,106 @@
 
 const PrayerCalc = {
   methods: {
-    1: { fajr: 18, isha: 18 },
-    2: { fajr: 18, isha: 17 },
-    3: { fajr: 15, isha: 15 },
-    4: { fajr: 18.5, isha: 0, ishaFixed: 90 },
-    5: { fajr: 15, isha: 15 },
+    1: { fajr: 18,   isha: 18 },
+    2: { fajr: 18,   isha: 17 },
+    3: { fajr: 15,   isha: 15 },
+    4: { fajr: 18.5, ishaFixed: 90 },
+    5: { fajr: 15,   isha: 15 },
   },
 
   toRad: d => d * Math.PI / 180,
   toDeg: r => r * 180 / Math.PI,
-  fixHour: h => h - 24 * Math.floor(h / 24),
 
-  sunPosition(jd) {
-    const D = jd - 2451545.0;
-    const g = this.toRad(357.529 + 0.98560028 * D);
-    const q = 280.459 + 0.98564736 * D;
-    const L = this.toRad(q + 1.915 * Math.sin(g) + 0.02 * Math.sin(2 * g));
-    const e = this.toRad(23.439 - 0.00000036 * D);
-    const RA = this.toDeg(Math.atan2(Math.cos(e) * Math.sin(L), Math.cos(L))) / 15;
-    const eqT = q / 15 - this.fixHour(RA);
-    const decl = Math.asin(Math.sin(e) * Math.sin(L));
-    return { eqT, decl };
+  fixHour(h) {
+    h = h % 24;
+    return h < 0 ? h + 24 : h;
   },
 
   julianDay(date) {
-    const Y = date.getFullYear(), M = date.getMonth() + 1, D = date.getDate();
-    const A = Math.floor((14 - M) / 12), y = Y + 4800 - A, m = M + 12 * A - 3;
-    return D + Math.floor((153 * m + 2) / 5) + 365 * y + Math.floor(y / 4) - Math.floor(y / 100) + Math.floor(y / 400) - 32045;
+    const Y = date.getFullYear();
+    const M = date.getMonth() + 1;
+    const D = date.getDate();
+    if (M <= 2) { return this.julianDay(new Date(Y-1, M+10, D)); }
+    const A = Math.floor(Y / 100);
+    const B = 2 - A + Math.floor(A / 4);
+    return Math.floor(365.25 * (Y + 4716)) + Math.floor(30.6001 * (M + 1)) + D + B - 1524.5;
   },
 
-  prayerAngle(lat, decl, angle) {
-    const cosH = (Math.cos(this.toRad(angle)) - Math.sin(decl) * Math.sin(this.toRad(lat)))
-                  / (Math.cos(decl) * Math.cos(this.toRad(lat)));
-    if (Math.abs(cosH) >= 1) return NaN;
+  sunEquation(jd) {
+    const T  = (jd - 2451545.0) / 36525.0;
+    const M  = this.toRad(357.52911 + T * (35999.05029 - 0.0001537 * T));
+    const L0 = 280.46646 + T * (36000.76983 + T * 0.0003032);
+    const C  = (1.914602 - T * (0.004817 + 0.000014 * T)) * Math.sin(M)
+             + (0.019993 - 0.000101 * T) * Math.sin(2 * M)
+             +  0.000289 * Math.sin(3 * M);
+    const sunLon = this.toRad(L0 + C);
+    const e  = this.toRad(23.439291 - T * 0.013004);
+    const RA = this.toDeg(Math.atan2(Math.cos(e) * Math.sin(sunLon), Math.cos(sunLon))) / 15;
+    const RAfix = ((RA % 24) + 24) % 24;
+    const L0fix = ((L0 % 360) + 360) % 360;
+    const eqT = L0fix / 15 - RAfix;
+    const decl = Math.asin(Math.sin(e) * Math.sin(sunLon));
+    return { eqT, decl };
+  },
+
+  hourAngle(lat, decl, elev) {
+    const cosH = (Math.sin(this.toRad(elev)) - Math.sin(this.toRad(lat)) * Math.sin(decl))
+               / (Math.cos(this.toRad(lat)) * Math.cos(decl));
+    if (cosH > 1 || cosH < -1) return NaN;
     return this.toDeg(Math.acos(cosH)) / 15;
   },
 
-  asrTime(lat, decl, factor = 1) {
-    const cotA = factor + Math.tan(Math.abs(this.toRad(lat) - decl));
-    const angle = this.toDeg(Math.atan(1 / cotA));
-    return this.prayerAngle(lat, decl, -angle);
+  asrAngle(lat, decl, shadow = 1) {
+    const t = Math.atan(1.0 / (shadow + Math.tan(Math.abs(this.toRad(lat) - decl))));
+    return this.hourAngle(lat, decl, this.toDeg(t));
   },
 
-  calculate(lat, lng, date, method = 4, tz = 3) {
+  calculate(lat, lng, date, method = 4) {
     const jd = this.julianDay(date);
-    const { eqT, decl } = this.sunPosition(jd);
-    const noon = 12 + tz - lng / 15 - eqT;
+    const { eqT, decl } = this.sunEquation(jd);
+
+    // True solar noon in UTC hours
+    const tz = date.getTimezoneOffset() / -60;
+    const transit = 12 - lng / 15 - eqT + (tz - (lng / 15 - Math.round(lng / 15)) * 0);
+    // Simpler: noon local = 12 + tz_offset - lng/15 - eqT  but use actual offset
+    const noon = 12 - eqT - (lng / 15 - tz);
+
     const m = this.methods[method] || this.methods[4];
 
-    const fajrH = this.prayerAngle(lat, decl, -m.fajr);
-    const sunriseH = this.prayerAngle(lat, decl, -0.8333);
-    const asrH = this.asrTime(lat, decl, 1);
-    const maghribH = this.prayerAngle(lat, decl, -0.8333);
-    const ishaH = m.ishaFixed ? maghribH + m.ishaFixed / 60 : this.prayerAngle(lat, decl, -m.isha);
+    const fajrHA    = this.hourAngle(lat, decl, -m.fajr);
+    const sunriseHA = this.hourAngle(lat, decl, -0.8333);
+    const asrHA     = this.asrAngle(lat, decl, 1);
+    const maghribHA = this.hourAngle(lat, decl, -0.8333);
+    const ishaHA    = m.ishaFixed ? null : this.hourAngle(lat, decl, -(m.isha || 18));
+
+    const maghrib = noon + maghribHA;
 
     return {
-      fajr: noon - fajrH,
-      sunrise: noon - sunriseH,
-      dhuhr: noon + 0.033,
-      asr: noon + asrH,
-      maghrib: noon + maghribH,
-      isha: noon + ishaH,
+      fajr:    noon - fajrHA,
+      sunrise: noon - sunriseHA,
+      dhuhr:   noon + 0.033,
+      asr:     noon + asrHA,
+      maghrib: maghrib,
+      isha:    m.ishaFixed ? maghrib + m.ishaFixed / 60 : noon + ishaHA,
     };
   },
 
   formatTime(h, use12 = true) {
+    if (isNaN(h)) return '--:--';
     const total = this.fixHour(h);
-    let hh = Math.floor(total), mm = Math.round((total - hh) * 60);
-    if (mm === 60) { hh++; mm = 0; }
+    let hh = Math.floor(total);
+    let mm = Math.round((total - hh) * 60);
+    if (mm === 60) { hh = (hh + 1) % 24; mm = 0; }
     if (use12) {
       const ampm = hh >= 12 ? 'م' : 'ص';
       const hh12 = hh % 12 || 12;
-      return `${String(hh12).padStart(2, '0')}:${String(mm).padStart(2, '0')} ${ampm}`;
+      return String(hh12).padStart(2,'0') + ':' + String(mm).padStart(2,'0') + ' ' + ampm;
     }
-    return `${String(hh % 24).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
+    return String(hh).padStart(2,'0') + ':' + String(mm).padStart(2,'0');
   },
 
   toMinutes(h) {
+    if (isNaN(h)) return 0;
     return this.fixHour(h) * 60;
   }
 };
@@ -947,7 +991,7 @@ const PrayerCalc = {
 // STATE
 // ═══════════════════════════════════════════
 let state = {
-  lat: 21.3891, lng: 39.8579, tz: 3,
+  lat: 21.3891, lng: 39.8579,
   cityName: 'جدة، المملكة العربية السعودية',
   method: 4,
   times: null,
@@ -1297,15 +1341,13 @@ function getTimezone(lng) {
 async function initLocation(lat, lng) {
   state.lat = lat;
   state.lng = lng;
-  state.tz = getTimezone(lng);
-
   const name = await reverseGeocode(lat, lng);
   state.cityName = name;
   document.getElementById('loc-name').textContent = name;
   document.getElementById('loc-coords').textContent = `${lat.toFixed(4)}°N، ${lng.toFixed(4)}°E`;
 
   state.method = parseInt(document.getElementById('method-select').value);
-  state.times = PrayerCalc.calculate(lat, lng, new Date(), state.method, state.tz);
+  state.times = PrayerCalc.calculate(lat, lng, new Date(), state.method);
 
   renderPrayers();
   updateQibla();
@@ -1329,7 +1371,7 @@ function refreshLocation() {
 
 function recalculate() {
   state.method = parseInt(document.getElementById('method-select').value);
-  state.times = PrayerCalc.calculate(state.lat, state.lng, new Date(), state.method, state.tz);
+  state.times = PrayerCalc.calculate(state.lat, state.lng, new Date(), state.method);
   renderPrayers();
 }
 
